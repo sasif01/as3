@@ -8,16 +8,19 @@ Carnivora <- read_tsv("https://www.boldsystems.org/index.php/API_Public/combined
 write_tsv(Carnivora, "Carnivora_BOLD_data.tsv")
 Carnivora <- read_tsv("Carnivora_BOLD_data.tsv")
 
-#Part1: Does America continent have the highest abundance of carnivores among the five continents of the Americas, Africa, Asia, Europe, and Oceania?
+#Part1: Does the American continent have the highest abundance of carnivores among the five continents of the Americas, Africa, Asia, Europe, and Oceania?
 install.packages("tidyverse")
 library(tidyverse)
 #since the table includes 80 columns, only main columns including sampleid, family_name, spp_name, species_name, country, bin_uri are extract
+
 data <- data.frame(sampleid=Carnivora$sampleid,family_name=Carnivora$family_name, spp_name=Carnivora$species_name, bin_uri=Carnivora$bin_uri, country=Carnivora$country)
 view(data)
 
 #country and bin_uri are main objective for this test -> remove all rows that contains NA values in these 2 rows
+
 install.packages("tidyr")
 library(tidyr)
+
 data.filtered <- data %>% 
   drop_na(bin_uri, country)
 View(data.filtered)
@@ -32,8 +35,11 @@ continent <- countrycode(data.filtered$country, origin = "country.name" , destin
 df.continent <- as.data.frame(continent)
 view(df.continent)
 
+#(Major Edit1: Checks) : Viewing the number of species sampled across continents.
+sum(table(df.continent))
 
 #calculate the length of country column to check if it is reasonable to remove some unrelated data
+
 length(data.filtered$country) #there are 2381 rows in total
 
 #the testing continents include Americas, Africa, Asia, Europe, and Oceania. Even though Antarctica is also a continent, it is more general than the 5 listed because it includes both Europe and Oceania continents.
@@ -47,17 +53,25 @@ sum(data.filtered$country == "Exception - Zoological Park") #there are only 9 sa
 #similar to Antarctia, North Pacific Ocean includes two continents, Asia and Oceania -> the samples origin is not specific enough  
 sum(data.filtered$country == "North Pacific Ocean") #there are only 1 samples from North Pacific Ocean -> the elements are acceptable to be removed 
 
+
 #append column using tible -> add continent column next to existing data.filtered table to create a complete data set 
 data.filtered.update <- data.filtered %>% 
   add_column(df.continent)
 view(data.filtered.update)
+
+sum(data.filtered.update$country=="Antarctica")
 
 #use table() function to find the continent that has the highest abundance of species 
 freq_table <- data.frame(table(data.filtered.update$continent))
 view(freq_table)
 
 #using barplot to visualize frequency table
-barplot(Freq ~ Var1, freq_table, col=c("cyan3"), xlab="Continent", ylab="Abundance", main = "Figure 1. Barplot of Carnivora abundance among the five main continents") 
+#(Minor Edit) Use ggplot here. Changes made to the title
+ggplot(freq_table, aes(y=Freq, x=Var1)) +
+  geom_bar(stat="identity", fill="steelblue") +
+  labs(title="Carnivora abundance among five continents", x="Continent", y="Abundance")
+
+#barplot(Freq ~ Var1, freq_table, col=c("cyan3"), xlab="Continent", ylab="Abundance", main = "Figure 1. Barplot of Carnivora abundance among the five main continents") 
 
 #############################################################
 #Part2: Species accumulation curve and data filtering 
@@ -68,9 +82,18 @@ BINs.by.continent <- data.filtered.update %>%
   count(bin_uri)  #count the number of individuals in each BIN/species
 view(BINs.by.continent) 
 
+#(Major Edit 1: Checks) Check to see any missing data before removing it.
+sum(is.na(BINs.by.continent$continent))
+
 #remove all rows that have NA values in continent because further analysis require numeric values only
 BINs.by.continent.update <- BINs.by.continent %>% 
   filter(!is.na(continent))
+
+#(Major Edit 1: Checks) check to see there are no missing points afterwards (me)-my code
+sum(is.na(BINs.by.continent.update$continent))
+
+#(minior edit) Check total number of species across continents in new, filtered dataset. There are 187 total species, across all continents
+sum(table(BINs.by.continent.update$continent))
 
 #converting the data to a table of species variables and continents, each observations represents the number of individuals of a species in a continent. 
 BINs.spread.by.continent <- pivot_wider(data = BINs.by.continent.update, names_from = bin_uri, values_from = n)
@@ -79,7 +102,9 @@ view(BINs.spread.by.continent)
 #NA value means that species is not available in that continent. Further analysis requires numeric values -> NA converts to 0 
 BINs.spread.by.continent[is.na(BINs.spread.by.continent)] <- 0
 
+
 #remove rowname header, convert the column names into row names for further analysis because it 'x' must be numeric
+#Might try to imporve this line
 BINs.spread.by.continent.update <- BINs.spread.by.continent %>%
   remove_rownames %>%
   column_to_rownames(var = "continent")
@@ -87,22 +112,43 @@ BINs.spread.by.continent.update <- BINs.spread.by.continent %>%
 #use specaccum to find the number of species at continent sites 
 BINs.spread.by.continent.update.accum <- specaccum(BINs.spread.by.continent.update) #one error, Oceania element does not contain sufficient number of observations; detailed explain in discussion section
 view(BINs.spread.by.continent.update)
- 
+
+#(minor edit) Viewing the species accumulation table. Results reveal that additional sampling across continents results in a drastic increase in observed species richness
+#The total number of species at Site 5 is 143, whereas the dataset is shown to have 187. It is possible this is the result of the error encountered previously regarding Oceania lacking sufficient observations.
+BINs.spread.by.continent.update.accum
+
+#(MajorEdit 2 : Accumulation Curve in ggplot) Creating an Accumulation curve in ggplot()
+#Creating a dataframe for the accumulation of species as additional sites are sampled.
+accum_frame <- data.frame(Sites=BINs.spread.by.continent.update.accum$sites, Richness=BINs.spread.by.continent.update.accum$richness, SD=BINs.spread.by.continent.update.accum$sd)
+
+#improved accumulation curve using ggplot. The plot is shows an upward trend and no sign of plateau, indicating additional sites need to samples to realize the maximum species richness for this taxa.
+#Main title is changed to a simpler, more concise title.
+ggplot() +
+  geom_point(data=accum_frame, aes(x=Sites, y=Richness)) +
+  geom_line(data=accum_frame, aes(x=Sites, y=Richness)) +
+  geom_ribbon(data=accum_frame ,aes(x=Sites, ymin=(Richness-2*SD), ymax =(Richness+2*SD)),alpha=0.2) +labs(title="Continents-Based Accumulation Curve", x="Continents Sampled", y="BIN Richness")
+
 #plot the accumulation curve to comprehend the BIN composition of survey plots and predict species abundance.
-plot(BINs.spread.by.continent.update.accum, xlab = "Continents Sampled", ylab = "BIN Richness", main = "Site-Based Accumulation Curve, with Continents as Sites")
+#plot(BINs.spread.by.continent.update.accum, xlab = "Continents Sampled", ylab = "BIN Richness", main = "Site-Based Accumulation Curve, with Continents as Sites")
+
+#(Major Edit 3 : Extrapolating Species Richness) : Including a function that extrapolates species richness for additional sampling across sites. The function uses Choas, Jack-knife, and Bootstrapping method to determine the increase in observation of rare species resulting from sampling across more sites.
+#Results show that addition sampling will result in a significant increase in species richness.
+#Chaos value shows that additional sampling sites may reveal as many as 381.93 species, a significant increase from the number of currently observed species.
+
+specpool(BINs.spread.by.continent.update)
 
 #############################################################
 #Part 3: Europe-Americas correlation vs Asia-Americas correlation
 
 #filter all observations that have the continent equal "Americas", "Europe" and "Asia" for the last test
 BINs.spread.by.continent.subset <- BINs.spread.by.continent %>% 
-filter(continent == "Europe" | continent == "Americas" | continent == "Asia")
+  filter(continent == "Europe" | continent == "Americas" | continent == "Asia")
 
 
 #There are some species that's not available in these 3 continents -> update the data by checking if there is at least one observation available for each variable
 BINs.spread.by.continent.subset <- BINs.spread.by.continent.subset[, colSums(BINs.spread.by.continent.subset != 0) > 0] %>% 
-remove_rownames() %>% 
-column_to_rownames(var="continent")
+  remove_rownames() %>% 
+  column_to_rownames(var="continent")
 
 install.packages("FactoMineR")
 install.packages("factoextra")
